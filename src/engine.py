@@ -13,8 +13,9 @@ class VectorIndex:
     Attributes:
         model (SentenceTransformer): The embedding model used for encoding text.
         documents (List[str]): A list of raw text documents added to the index.
-        embeddings (Optional[np.ndarray]): A 2D NumPy array of shape (N, D) storing vector
-            representations, where N is the number of documents and D is the embedding dimension.
+        embeddings (Optional[np.ndarray]): A 2D NumPy array of shape (N, D)
+            storing vector representations, where N is the number of documents
+            and D is the embedding dimension.
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
