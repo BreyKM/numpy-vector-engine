@@ -53,10 +53,12 @@ Query: who won the Battle of Hastings?
 from src.engine import VectorIndex
 
 index = VectorIndex()
-index.add_documents([
-    "Stainless steel vacuum flask keeps beverages hot for twelve hours.",
-    "Memory foam sneakers designed for nurses and retail workers.",
-])
+index.add_documents(
+    [
+        "Stainless steel vacuum flask keeps beverages hot for twelve hours.",
+        "Memory foam sneakers designed for nurses and retail workers.",
+    ]
+)
 
 for score, document in index.search("comfortable footwear for long shifts", top_k=2):
     print(f"{score:.4f}  {document}")
