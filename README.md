@@ -1,6 +1,8 @@
-# numpy Vector Engine ![Show Image](https://github.com/BreyKM/numpy-vector-engine/actions/workflows/ci.yml/badge.svg)
+# numpy Vector Engine 
 
-### A lightweight, in-memory vector search engine built from scratch in Python with NumPy.
+[![CI](https://github.com/BreyKM/numpy-vector-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/BreyKM/numpy-vector-engine/actions/workflows/ci.yml)
+
+A lightweight, in-memory vector search engine built from scratch in Python with NumPy.
 
 Traditional search matches characters. Searching a product catalog for "something to keep my coffee warm" returns nothing if no listing contains those words, even when a vacuum flask is sitting right there in the data.
 
@@ -22,13 +24,8 @@ The first run downloads the embedding model (~90 MB) and caches it locally.
 ## Example
 
 main.py indexes a small product catalog and runs several queries. Note that none of the queries share vocabulary with the listing they retrieve:
-```
+```text
 Loading embedding model...
-Loading model 'all-MiniLM-L6-v2'...
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights: 100%|███████████████████████████████████████████████████████████████████████████████████| 103/103 [00:00<00:00, 7098.71it/s]
-Encoding 5 documents...
-Index updated
 Indexed 5 documents.
 
 Query: something to keep my coffee warm
@@ -73,7 +70,7 @@ cosine(a, b) = \frac{a · b}{‖a‖ × ‖b‖}
 $$
 Embedding models encode meaning in a vector's direction, so magnitude should not influence the ranking. Since every stored vector is normalized to unit length at ingestion time, the denominator is always 1 and each similarity reduces to a plain dot product. One matrix multiplication then scores the entire index:
 
-```python
+```
 embeddings (N × 384)  @  query (384,)  →  scores (N,)
 ```
 
