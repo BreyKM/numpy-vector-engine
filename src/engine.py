@@ -44,8 +44,6 @@ class VectorIndex:
             Defaults to 'all-MiniLM-L6-v2'.
         """
 
-        print(f"Loading model '{model_name}'...")
-
         self.model = SentenceTransformer(model_name)
 
         self.documents: list[str] = []
@@ -67,7 +65,6 @@ class VectorIndex:
         if not docs:
             raise ValueError("Cannot add an empty list of documents to the index.")
 
-        print(f"Encoding {len(docs)} documents...")
         new_embeddings = self.model.encode(docs, show_progress_bar=False)
         new_embeddings = l2_normalize(new_embeddings.astype(np.float32))
 
@@ -77,7 +74,6 @@ class VectorIndex:
             self.embeddings = new_embeddings
         else:
             self.embeddings = np.vstack((self.embeddings, new_embeddings))
-        print("Index updated")
 
     def search(self, query: str, top_k: int = 5) -> list[tuple[float, str]]:
         """Finds the documents most similar to the query using cosine similarity.
