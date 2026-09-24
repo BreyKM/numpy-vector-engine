@@ -16,10 +16,7 @@ SAMPLE_DOCS = [
 
 queries = [
     "something to keep my coffee warm",
-    "a portable computer for school",
-    "comfortable footwear for long shifts",
     "cheap phone with a good camera",
-    "luggage for a weekend trip",
     "who won the Battle of Hastings?",
 ]
 
