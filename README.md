@@ -112,7 +112,7 @@ pytest
 
 The suite covers the normalization math against hand-computed values, ingestion and shape invariants, and edge cases including an empty index, top_k larger than the index, and blank queries. The central test compares the optimized search against a direct transcription of the cosine similarity formula, verifying that the normalization and partial-sort optimizations produce identical rankings and scores.
 
-GitHub Actions runs Ruff (lint and format) and the full test suite on every push and pull request. Linting runs before the dependency install so style failures surface in seconds rather than minutes.
+GitHub Actions runs Ruff (lint and format) once, then the full test suite on Python 3.12, 3.13, and 3.14, on every push and pull request. The tests only start after linting passes, so style failures surface in seconds rather than after the multi-minute dependency install.
 
 ## Limitations and roadmap
 
