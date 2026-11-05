@@ -62,6 +62,21 @@ for score, document in index.search("comfortable footwear for long shifts", top_
 ```
 search returns (score, document) pairs sorted highest-first. Scores range from -1 to 1 and are meaningful relative to each other, not as absolute percentages.
 
+### Saving and loading
+
+```python
+from src.engine import VectorIndex
+
+index = VectorIndex()
+index.add_documents(["Compact carry-on suitcase with four spinner wheels."])
+index.save("data/my-index")
+
+restored = VectorIndex.load("data/my-index")
+print(restored.search("luggage for a short trip", top_k=1))
+```
+
+save writes the vectors to embeddings.npy and the documents and model name to index.json. load reads the model name back from the file, so a restored index always encodes queries with the model that produced its vectors.
+
 ## How it works
 
 Cosine similarity measures the angle between two vectors, ignoring their magnitude:
@@ -86,6 +101,8 @@ float32 embeddings. Half the memory of float64 (~1.5 GB versus ~3 GB per million
 
 Explicit input validation. add_documents rejects a bare string, which Python would otherwise iterate character by character, producing one "document" per letter while generating only a single embedding.
 
+Crash-safe saves. save deletes index.json first and writes it last, so it acts as a completion marker: a save interrupted partway leaves no index.json, and load refuses the directory rather than pairing new vectors with old documents. load also treats the files as untrusted, checking the format version, the document count against the number of vector rows, and the stored dimension against the model before it builds the index.
+
 ## Testing and CI
 
 ```bash
@@ -99,11 +116,11 @@ GitHub Actions runs Ruff (lint and format) and the full test suite on every push
 
 ## Limitations and roadmap
 
-The index is in-memory only, so documents are re-encoded on every run. Search is exact, comparing the query against every stored vector, which is O(N) per query and does not scale to very large collections. Documents cannot yet be updated or deleted, since removal would shift the row positions that keep text and embeddings aligned.
+The whole index is held in memory, including after it is loaded from disk. Search is exact, comparing the query against every stored vector, which is O(N) per query and does not scale to very large collections. Documents cannot yet be updated or deleted, since removal would shift the row positions that keep text and embeddings aligned.
 
 Planned next:
 
-- [ ] Persistence — save and load the index from disk
+- [x] Persistence — save and load the index from disk
 - [ ] Benchmark suite with latency percentiles and memory profiling
 - [ ] Approximate nearest neighbor index (IVF or HNSW), measured against this exact search for both recall and latency
 - [ ] Memory-mapped vector storage for indexes larger than RAM

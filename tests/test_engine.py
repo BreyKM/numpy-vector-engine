@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -12,6 +14,16 @@ def empty_index():
 def test_initial_state(empty_index):
     assert len(empty_index.documents) == 0
     assert empty_index.embeddings is None
+
+
+def test_default_model_name_is_stored(empty_index):
+    assert empty_index.model_name == "all-MiniLM-L6-v2"
+
+
+def test_explicit_model_name_is_stored():
+    model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    index = VectorIndex(model_name=model_name)
+    assert index.model_name == model_name
 
 
 def test_add_documents_dimensions(empty_index):
@@ -120,3 +132,88 @@ def test_invalid_top_k_raises(populated_index, bad_top_k):
 def test_blank_query_raises(populated_index):
     with pytest.raises(ValueError):
         populated_index.search(" ")
+
+
+def test_save_empty_index_raises(empty_index, tmp_path):
+    with pytest.raises(ValueError):
+        empty_index.save(tmp_path / "index")
+
+
+def test_save_writes_embeddings_and_metadata(populated_index, tmp_path):
+    save_dir = tmp_path / "index"
+    populated_index.save(save_dir)
+
+    embeddings = np.load(save_dir / "embeddings.npy")
+    assert np.array_equal(embeddings, populated_index.embeddings)
+
+    metadata = json.loads((save_dir / "index.json").read_text(encoding="utf-8"))
+    assert metadata["format_version"] == 1
+    assert metadata["model_name"] == populated_index.model_name
+    assert metadata["dimension"] == 384
+    assert metadata["documents"] == populated_index.documents
+
+
+def test_save_keeps_non_ascii_text_readable(empty_index, tmp_path):
+    empty_index.add_documents(["Café au lait", "日本語のテキスト"])
+    empty_index.save(tmp_path)
+
+    raw = (tmp_path / "index.json").read_text(encoding="utf-8")
+    assert "Café au lait" in raw
+    assert "日本語のテキスト" in raw
+
+
+@pytest.fixture
+def saved_index_dir(populated_index, tmp_path):
+    save_dir = tmp_path / "index"
+    populated_index.save(save_dir)
+    return save_dir
+
+
+def rewrite_metadata(save_dir, **changes):
+    """Overwrites fields in a saved index.json to simulate a corrupt file."""
+    metadata_path = save_dir / "index.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.update(changes)
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
+def test_load_round_trip(populated_index, saved_index_dir):
+    loaded = VectorIndex.load(saved_index_dir)
+
+    assert loaded.model_name == populated_index.model_name
+    assert loaded.documents == populated_index.documents
+    assert np.array_equal(loaded.embeddings, populated_index.embeddings)
+    assert loaded.embeddings.dtype == np.float32
+
+    query = "What language should I use to write code?"
+    assert loaded.search(query) == populated_index.search(query)
+
+
+@pytest.mark.parametrize("filename", ["embeddings.npy", "index.json"])
+def test_load_missing_file_raises(saved_index_dir, filename):
+    (saved_index_dir / filename).unlink()
+    with pytest.raises(FileNotFoundError):
+        VectorIndex.load(saved_index_dir)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"format_version": 999}, "format version"),
+        ({"documents": "not a list"}, "must be a list"),
+        ({"documents": SAMPLE_DOCS[:-1]}, "rows"),
+        ({"dimension": 512}, "columns"),
+    ],
+)
+def test_load_corrupt_metadata_raises(saved_index_dir, changes, message):
+    rewrite_metadata(saved_index_dir, **changes)
+    with pytest.raises(ValueError, match=message):
+        VectorIndex.load(saved_index_dir)
+
+
+def test_load_model_dimension_mismatch_raises(saved_index_dir):
+    wrong_size = np.ones((len(SAMPLE_DOCS), 10), dtype=np.float32)
+    np.save(saved_index_dir / "embeddings.npy", wrong_size)
+    rewrite_metadata(saved_index_dir, dimension=10)
+    with pytest.raises(ValueError, match="produces"):
+        VectorIndex.load(saved_index_dir)

@@ -3,8 +3,17 @@
 Provides in-memory vector storage and embedding ingestion using NumPy
 and SentenceTransformers."""
 
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
+
+FORMAT_VERSION = 1
+EMBEDDINGS_FILE = "embeddings.npy"
+METADATA_FILE = "index.json"
 
 
 def l2_normalize(vectors: np.ndarray) -> np.ndarray:
@@ -29,6 +38,7 @@ class VectorIndex:
     """An in-memory index for storing and managing high-dimensional text embeddings.
 
     Attributes:
+        model_name (str): The embedding model identifier passed to __init__.
         model (SentenceTransformer): The embedding model used for encoding text.
         documents (List[str]): A list of raw text documents added to the index.
         embeddings (Optional[np.ndarray]): A 2D NumPy array of shape (N, D)
@@ -43,6 +53,8 @@ class VectorIndex:
             model_name (str): HuggingFace model identifier for the embedding model.
             Defaults to 'all-MiniLM-L6-v2'.
         """
+
+        self.model_name: str = model_name
 
         self.model = SentenceTransformer(model_name)
 
@@ -114,3 +126,110 @@ class VectorIndex:
         top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
 
         return [(float(scores[i]), self.documents[i]) for i in top_indices]
+
+    def save(self, path: str | Path) -> None:
+        """Writes the index to a directory so it can be reloaded later.
+
+        The directory holds embeddings.npy with the vectors and index.json with
+        the documents and metadata. index.json is removed first and written
+        last, so a save that fails partway leaves no index.json and load
+        refuses the directory instead of reading mismatched files.
+
+        Args:
+            path (str | Path): Directory to save into. Created if missing.
+                An index already saved there is overwritten.
+
+        Raises:
+            ValueError: If the index is empty.
+        """
+        if self.embeddings is None:
+            raise ValueError("Cannot save an empty index. Add documents first.")
+
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        metadata_path = path / METADATA_FILE
+        metadata_path.unlink(missing_ok=True)
+
+        np.save(path / EMBEDDINGS_FILE, self.embeddings)
+
+        metadata = {
+            "format_version": FORMAT_VERSION,
+            "model_name": self.model_name,
+            "dimension": self.embeddings.shape[1],
+            "documents": self.documents,
+        }
+        metadata_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    @classmethod
+    def load(cls, path: str | Path) -> VectorIndex:
+        """Loads an index previously written by save.
+
+        The model name is read from index.json, so the loaded index encodes
+        queries with the same model that produced the stored vectors. The files
+        are validated before the model is loaded, and the index is only built
+        once every check has passed.
+
+        Args:
+            path (str | Path): Directory that save wrote to.
+
+        Returns:
+            A new VectorIndex holding the saved documents and embeddings.
+
+        Raises:
+            FileNotFoundError: If embeddings.npy or index.json is missing.
+            ValueError: If the files are corrupt, use an unsupported format
+                version, or do not match each other or the model.
+        """
+        path = Path(path)
+        embeddings_path = path / EMBEDDINGS_FILE
+        metadata_path = path / METADATA_FILE
+
+        for file in (embeddings_path, metadata_path):
+            if not file.is_file():
+                raise FileNotFoundError(f"Missing index file: {file}")
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        required_keys = {"format_version", "model_name", "dimension", "documents"}
+        if not isinstance(metadata, dict) or not required_keys <= metadata.keys():
+            raise ValueError(f"{metadata_path} is missing required fields.")
+        if metadata["format_version"] != FORMAT_VERSION:
+            raise ValueError(
+                f"Unsupported format version {metadata['format_version']!r}, "
+                f"expected {FORMAT_VERSION}."
+            )
+
+        documents = metadata["documents"]
+        dimension = metadata["dimension"]
+        if not isinstance(documents, list):
+            raise ValueError("documents in index.json must be a list.")
+
+        embeddings = np.load(embeddings_path, allow_pickle=False)
+        if embeddings.ndim != 2:
+            raise ValueError(f"Embeddings must be 2D, got shape {embeddings.shape}.")
+        if len(documents) != embeddings.shape[0]:
+            raise ValueError(
+                f"index.json has {len(documents)} documents but embeddings.npy "
+                f"has {embeddings.shape[0]} rows."
+            )
+        if dimension != embeddings.shape[1]:
+            raise ValueError(
+                f"index.json says dimension {dimension} but embeddings.npy "
+                f"has {embeddings.shape[1]} columns."
+            )
+
+        index = cls(model_name=metadata["model_name"])
+
+        model_dimension = index.model.get_embedding_dimension()
+        if model_dimension != dimension:
+            raise ValueError(
+                f"Model {metadata['model_name']!r} produces {model_dimension}-dim "
+                f"vectors but the saved embeddings are {dimension}-dim."
+            )
+
+        index.documents = documents
+        index.embeddings = embeddings.astype(np.float32)
+        return index
