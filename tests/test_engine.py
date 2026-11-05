@@ -160,3 +160,60 @@ def test_save_keeps_non_ascii_text_readable(empty_index, tmp_path):
     raw = (tmp_path / "index.json").read_text(encoding="utf-8")
     assert "Café au lait" in raw
     assert "日本語のテキスト" in raw
+
+
+@pytest.fixture
+def saved_index_dir(populated_index, tmp_path):
+    save_dir = tmp_path / "index"
+    populated_index.save(save_dir)
+    return save_dir
+
+
+def rewrite_metadata(save_dir, **changes):
+    """Overwrites fields in a saved index.json to simulate a corrupt file."""
+    metadata_path = save_dir / "index.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.update(changes)
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+
+def test_load_round_trip(populated_index, saved_index_dir):
+    loaded = VectorIndex.load(saved_index_dir)
+
+    assert loaded.model_name == populated_index.model_name
+    assert loaded.documents == populated_index.documents
+    assert np.array_equal(loaded.embeddings, populated_index.embeddings)
+    assert loaded.embeddings.dtype == np.float32
+
+    query = "What language should I use to write code?"
+    assert loaded.search(query) == populated_index.search(query)
+
+
+@pytest.mark.parametrize("filename", ["embeddings.npy", "index.json"])
+def test_load_missing_file_raises(saved_index_dir, filename):
+    (saved_index_dir / filename).unlink()
+    with pytest.raises(FileNotFoundError):
+        VectorIndex.load(saved_index_dir)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"format_version": 999}, "format version"),
+        ({"documents": "not a list"}, "must be a list"),
+        ({"documents": SAMPLE_DOCS[:-1]}, "rows"),
+        ({"dimension": 512}, "columns"),
+    ],
+)
+def test_load_corrupt_metadata_raises(saved_index_dir, changes, message):
+    rewrite_metadata(saved_index_dir, **changes)
+    with pytest.raises(ValueError, match=message):
+        VectorIndex.load(saved_index_dir)
+
+
+def test_load_model_dimension_mismatch_raises(saved_index_dir):
+    wrong_size = np.ones((len(SAMPLE_DOCS), 10), dtype=np.float32)
+    np.save(saved_index_dir / "embeddings.npy", wrong_size)
+    rewrite_metadata(saved_index_dir, dimension=10)
+    with pytest.raises(ValueError, match="produces"):
+        VectorIndex.load(saved_index_dir)
