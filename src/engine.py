@@ -29,6 +29,7 @@ class VectorIndex:
     """An in-memory index for storing and managing high-dimensional text embeddings.
 
     Attributes:
+        model_name (str): The embedding model identifier passed to __init__.
         model (SentenceTransformer): The embedding model used for encoding text.
         documents (List[str]): A list of raw text documents added to the index.
         embeddings (Optional[np.ndarray]): A 2D NumPy array of shape (N, D)
@@ -43,6 +44,8 @@ class VectorIndex:
             model_name (str): HuggingFace model identifier for the embedding model.
             Defaults to 'all-MiniLM-L6-v2'.
         """
+
+        self.model_name: str = model_name
 
         self.model = SentenceTransformer(model_name)
 

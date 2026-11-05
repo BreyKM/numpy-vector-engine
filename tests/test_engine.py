@@ -14,6 +14,16 @@ def test_initial_state(empty_index):
     assert empty_index.embeddings is None
 
 
+def test_default_model_name_is_stored(empty_index):
+    assert empty_index.model_name == "all-MiniLM-L6-v2"
+
+
+def test_explicit_model_name_is_stored():
+    model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    index = VectorIndex(model_name=model_name)
+    assert index.model_name == model_name
+
+
 def test_add_documents_dimensions(empty_index):
     sample_docs = ["First sentence.", "Second sentence."]
     empty_index.add_documents(sample_docs)
