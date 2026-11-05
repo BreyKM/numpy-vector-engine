@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from src.engine import VectorIndex, l2_normalize
+from src.engine import VectorIndex, l2_normalize, top_k_cosine
 
 
 @pytest.fixture
@@ -82,6 +82,46 @@ def test_l2_normalize_leaves_zero_vectors_as_zero():
     normalized = l2_normalize(np.zeros((1, 3), dtype=np.float32))
     assert not np.isnan(normalized).any()
     assert np.allclose(normalized, 0.0)
+
+
+def test_top_k_cosine_returns_closest_rows_with_scores():
+    embeddings = l2_normalize(
+        np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=np.float32)
+    )
+    query = np.array([1.0, 0.0], dtype=np.float32)
+
+    indices, scores = top_k_cosine(embeddings, query, k=2)
+
+    assert indices.tolist() == [0, 2]
+    assert np.allclose(scores, [1.0, np.sqrt(0.5)])
+
+
+def test_top_k_cosine_sorts_results_itself(monkeypatch):
+    # np.argpartition promises no order within the top k, even though it often
+    # returns them sorted. Reversing its output proves top_k_cosine sorts.
+    real_argpartition = np.argpartition
+
+    def reversed_argpartition(a, kth):
+        result = real_argpartition(a, kth)
+        return np.concatenate([result[: kth + 1][::-1], result[kth + 1 :]])
+
+    monkeypatch.setattr(np, "argpartition", reversed_argpartition)
+
+    rng = np.random.default_rng(seed=0)
+    embeddings = l2_normalize(rng.standard_normal((100, 8)).astype(np.float32))
+    query = embeddings[0]
+
+    indices, _ = top_k_cosine(embeddings, query, k=10)
+
+    expected = np.argsort(-(embeddings @ query))[:10]
+    assert indices.tolist() == expected.tolist()
+
+
+@pytest.mark.parametrize("bad_k", [0, 4])
+def test_top_k_cosine_invalid_k_raises(bad_k):
+    embeddings = np.eye(3, dtype=np.float32)
+    with pytest.raises(ValueError):
+        top_k_cosine(embeddings, embeddings[0], k=bad_k)
 
 
 def test_stored_embeddings_are_normalized(populated_index):

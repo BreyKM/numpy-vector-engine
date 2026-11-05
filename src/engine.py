@@ -35,6 +35,36 @@ def l2_normalize(vectors: np.ndarray) -> np.ndarray:
     return vectors / np.maximum(norms, 1e-12)
 
 
+def top_k_cosine(
+    embeddings: np.ndarray, query_vector: np.ndarray, k: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Finds the k rows of a matrix most similar to a query vector.
+
+    Both inputs must already be unit length, so each dot product is the cosine
+    similarity. Scoring every row costs O(N * D), selecting the top k with a
+    partial sort costs O(N) on average, and ordering those k costs O(k log k).
+
+    Args:
+        embeddings (np.ndarray): Unit vectors to search, shape (N, D).
+        query_vector (np.ndarray): Unit query vector, shape (D,).
+        k (int): Number of results to return, from 1 to N.
+
+    Returns:
+        A tuple (indices, scores) of two length-k arrays, highest score first.
+
+    Raises:
+        ValueError: If k is less than 1 or greater than the number of rows.
+    """
+    if not 1 <= k <= len(embeddings):
+        raise ValueError(f"k must be between 1 and {len(embeddings)}, got {k}.")
+
+    scores = embeddings @ query_vector
+    top_unsorted = np.argpartition(-scores, k - 1)[:k]
+    top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
+
+    return top_indices, scores[top_indices]
+
+
 class VectorIndex:
     """An in-memory index for storing and managing high-dimensional text embeddings.
 
@@ -120,13 +150,13 @@ class VectorIndex:
         query_vector = self.model.encode(query, show_progress_bar=False)
         query_vector = l2_normalize(query_vector.astype(np.float32))
 
-        scores = self.embeddings @ query_vector
-
         k = min(top_k, len(self.documents))
-        top_unsorted = np.argpartition(-scores, k - 1)[:k]
-        top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
+        indices, scores = top_k_cosine(self.embeddings, query_vector, k)
 
-        return [(float(scores[i]), self.documents[i]) for i in top_indices]
+        return [
+            (float(score), self.documents[i])
+            for i, score in zip(indices, scores, strict=True)
+        ]
 
     def save(self, path: str | Path) -> None:
         """Writes the index to a directory so it can be reloaded later.
