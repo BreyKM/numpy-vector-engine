@@ -1,3 +1,5 @@
+"""Tests for VectorIndex: ingestion, search, and saving and loading."""
+
 import json
 
 import numpy as np

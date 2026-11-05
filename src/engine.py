@@ -1,7 +1,8 @@
 """Vector search engine core index module.
 
-Provides in-memory vector storage and embedding ingestion using NumPy
-and SentenceTransformers."""
+Provides in-memory vector storage, embedding ingestion, exact cosine search,
+and saving and loading indexes on disk, using NumPy and SentenceTransformers.
+"""
 
 from __future__ import annotations
 
@@ -40,8 +41,8 @@ class VectorIndex:
     Attributes:
         model_name (str): The embedding model identifier passed to __init__.
         model (SentenceTransformer): The embedding model used for encoding text.
-        documents (List[str]): A list of raw text documents added to the index.
-        embeddings (Optional[np.ndarray]): A 2D NumPy array of shape (N, D)
+        documents (list[str]): A list of raw text documents added to the index.
+        embeddings (np.ndarray | None): A 2D NumPy array of shape (N, D)
             storing vector representations, where N is the number of documents
             and D is the embedding dimension.
     """
@@ -51,7 +52,7 @@ class VectorIndex:
 
         Args:
             model_name (str): HuggingFace model identifier for the embedding model.
-            Defaults to 'all-MiniLM-L6-v2'.
+                Defaults to 'all-MiniLM-L6-v2'.
         """
 
         self.model_name: str = model_name
@@ -63,7 +64,7 @@ class VectorIndex:
         self.embeddings: np.ndarray | None = None
 
     def add_documents(self, docs: list[str]) -> None:
-        """encodes raw text and appends their embeddings to the index.
+        """Encodes documents and appends their embeddings to the index.
 
         Args:
             docs (list[str]): A list of strings to encode and index.
@@ -91,7 +92,7 @@ class VectorIndex:
         """Finds the documents most similar to the query using cosine similarity.
 
         This is an exact (brute-force) search: the query is compared against
-        every stored vector, so it costs 0(N * D) per query.
+        every stored vector, so it costs O(N * D) per query.
 
         Args:
             query (str): The text to search for.
@@ -108,7 +109,7 @@ class VectorIndex:
         """
 
         if self.embeddings is None:
-            raise ValueError("Index is empty. Add documents before searching,")
+            raise ValueError("Index is empty. Add documents before searching.")
         if not isinstance(query, str):
             raise TypeError("Query must be a string.")
         if not query.strip():
