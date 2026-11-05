@@ -3,8 +3,15 @@
 Provides in-memory vector storage and embedding ingestion using NumPy
 and SentenceTransformers."""
 
+import json
+from pathlib import Path
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
+
+FORMAT_VERSION = 1
+EMBEDDINGS_FILE = "embeddings.npy"
+METADATA_FILE = "index.json"
 
 
 def l2_normalize(vectors: np.ndarray) -> np.ndarray:
@@ -117,3 +124,39 @@ class VectorIndex:
         top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
 
         return [(float(scores[i]), self.documents[i]) for i in top_indices]
+
+    def save(self, path: str | Path) -> None:
+        """Writes the index to a directory so it can be reloaded later.
+
+        The directory holds embeddings.npy with the vectors and index.json with
+        the documents and metadata. index.json is removed first and written
+        last, so a save that fails partway leaves no index.json and load
+        refuses the directory instead of reading mismatched files.
+
+        Args:
+            path (str | Path): Directory to save into. Created if missing.
+                An index already saved there is overwritten.
+
+        Raises:
+            ValueError: If the index is empty.
+        """
+        if self.embeddings is None:
+            raise ValueError("Cannot save an empty index. Add documents first.")
+
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        metadata_path = path / METADATA_FILE
+        metadata_path.unlink(missing_ok=True)
+
+        np.save(path / EMBEDDINGS_FILE, self.embeddings)
+
+        metadata = {
+            "format_version": FORMAT_VERSION,
+            "model_name": self.model_name,
+            "dimension": self.embeddings.shape[1],
+            "documents": self.documents,
+        }
+        metadata_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )

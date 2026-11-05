@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 
@@ -130,3 +132,31 @@ def test_invalid_top_k_raises(populated_index, bad_top_k):
 def test_blank_query_raises(populated_index):
     with pytest.raises(ValueError):
         populated_index.search(" ")
+
+
+def test_save_empty_index_raises(empty_index, tmp_path):
+    with pytest.raises(ValueError):
+        empty_index.save(tmp_path / "index")
+
+
+def test_save_writes_embeddings_and_metadata(populated_index, tmp_path):
+    save_dir = tmp_path / "index"
+    populated_index.save(save_dir)
+
+    embeddings = np.load(save_dir / "embeddings.npy")
+    assert np.array_equal(embeddings, populated_index.embeddings)
+
+    metadata = json.loads((save_dir / "index.json").read_text(encoding="utf-8"))
+    assert metadata["format_version"] == 1
+    assert metadata["model_name"] == populated_index.model_name
+    assert metadata["dimension"] == 384
+    assert metadata["documents"] == populated_index.documents
+
+
+def test_save_keeps_non_ascii_text_readable(empty_index, tmp_path):
+    empty_index.add_documents(["Café au lait", "日本語のテキスト"])
+    empty_index.save(tmp_path)
+
+    raw = (tmp_path / "index.json").read_text(encoding="utf-8")
+    assert "Café au lait" in raw
+    assert "日本語のテキスト" in raw
