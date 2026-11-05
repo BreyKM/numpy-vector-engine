@@ -10,7 +10,7 @@ This engine matches meaning instead. It encodes text into 384-dimensional embedd
 
 ## Quickstart
 
-Requires Python 3.10 or newer.
+Requires Python 3.12 or newer.
 ```bash
 git clone https://github.com/BreyKM/numpy-vector-engine.git
 cd numpy-vector-engine
