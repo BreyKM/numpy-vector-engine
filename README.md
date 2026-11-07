@@ -103,6 +103,10 @@ Explicit input validation. add_documents rejects a bare string, which Python wou
 
 Crash-safe saves. save deletes index.json first and writes it last, so it acts as a completion marker: a save interrupted partway leaves no index.json, and load refuses the directory rather than pairing new vectors with old documents. load also treats the files as untrusted, checking the format version, the document count against the number of vector rows, and the stored dimension against the model before it builds the index.
 
+IVF lists stored contiguously. IVFIndex.build sorts the vectors by list and records where each list starts, the same layout a CSR sparse matrix uses. A search scores each probed list as a slice of one array, which NumPy reads in place with no copying. A second array maps each sorted row back to its original position, so IVF returns the same ids as exact search.
+
+Spherical k-means, trained on a sample. Each centroid is the average of its cluster, renormalized to unit length, so comparing a query to a centroid is still a single dot product. Starting centroids are chosen with k-means++. Training on a random sample of 100,000 vectors is much faster than training on all of them and gives nearly the same centroids. Every vector is then assigned to its nearest one.
+
 ## Performance
 
 Measured on an Intel Core i7-12700KF (Windows 11, Python 3.14, NumPy 2.5 with OpenBLAS), returning the top 10 results. Each figure is the median (p50) of 200 queries. The index holds random unit vectors, since exact search does the same work whatever the vector values are.
@@ -131,6 +135,46 @@ To reproduce, including p95 and p99 latencies:
 python -m benchmarks.bench_search
 ```
 
+### Approximate search (IVF)
+
+src/ivf.py adds an inverted file (IVF) index. k-means groups the vectors into lists of similar vectors, and a search scores only the vectors in the few lists whose centroids are closest to the query. Probing more lists (n_probe) finds more of the true neighbors but takes longer.
+
+Measured on 1,000,000 real Wikipedia sentences encoded with all-MiniLM-L6-v2, using 1,000 held-out sentences as queries. Recall@10 is the share of the exact top 10 that IVF also returned. The index has 1,000 lists, with k-means trained on a random sample of 100,000 vectors, and took 12 s to build.
+
+| n_probe | Vectors scored | Recall@10 | p50 latency | Speed-up |
+|---:|---:|---:|---:|---:|
+| exact | 100% | 1.000 | 28.3 ms | 1x |
+| 1 | 0.1% | 0.452 | 0.13 ms | 225x |
+| 2 | 0.2% | 0.595 | 0.20 ms | 140x |
+| 4 | 0.5% | 0.709 | 0.37 ms | 77x |
+| 8 | 0.9% | 0.804 | 0.70 ms | 40x |
+| 16 | 1.8% | 0.876 | 1.18 ms | 24x |
+| 32 | 3.5% | 0.929 | 2.28 ms | 12x |
+| 64 | 6.7% | 0.963 | 4.48 ms | 6.3x |
+| 128 | 13.1% | 0.981 | 9.05 ms | 3.1x |
+
+Recall rises quickly, then flattens. Probing 32 of the 1,000 lists scores 3.5% of the vectors and finds 93% of the true top 10, twelve times faster than exact search. Beyond that, each doubling of n_probe buys fewer than four points of recall.
+
+One list is not enough. With n_probe = 1, IVF misses more than half of the true neighbors, because many of a query's nearest neighbors fall just across the boundary in a neighboring list.
+
+Encoding the query becomes the main cost. It takes 4.8 ms, so a full search at n_probe = 32 takes about 7 ms, against 33 ms with exact search.
+
+IVF scores each vector less efficiently than exact search. At n_probe = 128 it scores 13% of the vectors but takes 32% of the exact search time: exact search is one large matrix-vector product, while IVF makes one small product per probed list inside a Python loop.
+
+The costs: building the index takes 12 s, the index keeps its own copy of the vectors sorted by list (another 1.5 GB at a million vectors), and results are approximate.
+
+These numbers need real embeddings. Random vectors have no cluster structure for k-means to find. The exact-search benchmark above can use them only because exact search does the same work whatever the values are.
+
+To reproduce:
+
+```bash
+pip install -r requirements-bench.txt
+python -m benchmarks.prepare_wikipedia
+python -m benchmarks.bench_ivf
+```
+
+prepare_wikipedia downloads one file of the sentence-transformers/wikipedia-en-sentences dataset (340 MB) and encodes 1,001,000 sentences, which took 29 minutes on this CPU. The embeddings (1.5 GB) are saved to the git-ignored data/ folder.
+
 ## Testing and CI
 
 ```bash
@@ -138,19 +182,21 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite covers the normalization math against hand-computed values, ingestion and shape invariants, and edge cases including an empty index, top_k larger than the index, and blank queries. The central test compares the optimized search against a direct transcription of the cosine similarity formula, verifying that the normalization and partial-sort optimizations produce identical rankings and scores.
+The suite covers the normalization math against hand-computed values, ingestion and shape invariants, and edge cases including an empty index, top_k larger than the index, and blank queries. The central test compares the optimized search against a direct transcription of the cosine similarity formula, verifying that the normalization and partial-sort optimizations produce identical rankings and scores. The IVF tests check that probing every list returns exactly the same results as exact search. They use random, unclustered vectors, so the guarantee does not depend on how good the clustering is.
 
 GitHub Actions runs Ruff (lint and format) once, then the full test suite on Python 3.12, 3.13, and 3.14, on every push and pull request. The tests only start after linting passes, so style failures surface in seconds rather than after the multi-minute dependency install.
 
 ## Limitations and roadmap
 
-The whole index is held in memory, including after it is loaded from disk. Search is exact, comparing the query against every stored vector, which is O(N) per query (about 28 ms at a million vectors on a desktop CPU) and does not scale to very large collections. Documents cannot yet be updated or deleted, since removal would shift the row positions that keep text and embeddings aligned.
+The whole index is held in memory, including after it is loaded from disk. VectorIndex search is exact, comparing the query against every stored vector, which is O(N) per query (about 28 ms at a million vectors on a desktop CPU). The IVF index in src/ivf.py is far faster but standalone for now: VectorIndex does not use it yet, and it cannot be saved. Documents cannot yet be updated or deleted, since removal would shift the row positions that keep text and embeddings aligned.
 
 Planned next:
 
 - [x] Persistence — save and load the index from disk
 - [x] Benchmark suite with latency percentiles and memory profiling
-- [ ] Approximate nearest neighbor index (IVF or HNSW), measured against this exact search for both recall and latency
+- [x] Approximate nearest neighbor index (IVF), measured against exact search for both recall and latency
+- [ ] Search through IVF from VectorIndex, and save it with the index
+- [ ] HNSW graph index, compared against IVF
 - [ ] Memory-mapped vector storage for indexes larger than RAM
 - [ ] FastAPI endpoint and Docker packaging
 
