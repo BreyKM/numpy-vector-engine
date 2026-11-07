@@ -35,6 +35,32 @@ def l2_normalize(vectors: np.ndarray) -> np.ndarray:
     return vectors / np.maximum(norms, 1e-12)
 
 
+def select_top_k(scores: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """Picks the k highest scores, highest first.
+
+    Uses a partial sort: finding the top k costs O(N) on average, and only
+    those k are then fully sorted, in O(k log k).
+
+    Args:
+        scores (np.ndarray): One score per candidate, shape (N,).
+        k (int): Number of results to return, from 1 to N.
+
+    Returns:
+        A tuple (indices, scores) of two length-k arrays, highest score first.
+        The indices are positions in the scores array.
+
+    Raises:
+        ValueError: If k is less than 1 or greater than the number of scores.
+    """
+    if not 1 <= k <= len(scores):
+        raise ValueError(f"k must be between 1 and {len(scores)}, got {k}.")
+
+    top_unsorted = np.argpartition(-scores, k - 1)[:k]
+    top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
+
+    return top_indices, scores[top_indices]
+
+
 def top_k_cosine(
     embeddings: np.ndarray, query_vector: np.ndarray, k: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -55,14 +81,7 @@ def top_k_cosine(
     Raises:
         ValueError: If k is less than 1 or greater than the number of rows.
     """
-    if not 1 <= k <= len(embeddings):
-        raise ValueError(f"k must be between 1 and {len(embeddings)}, got {k}.")
-
-    scores = embeddings @ query_vector
-    top_unsorted = np.argpartition(-scores, k - 1)[:k]
-    top_indices = top_unsorted[np.argsort(-scores[top_unsorted])]
-
-    return top_indices, scores[top_indices]
+    return select_top_k(embeddings @ query_vector, k)
 
 
 class VectorIndex:

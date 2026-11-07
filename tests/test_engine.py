@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from src.engine import VectorIndex, l2_normalize, top_k_cosine
+from src.engine import VectorIndex, l2_normalize, select_top_k, top_k_cosine
 
 
 @pytest.fixture
@@ -82,6 +82,13 @@ def test_l2_normalize_leaves_zero_vectors_as_zero():
     normalized = l2_normalize(np.zeros((1, 3), dtype=np.float32))
     assert not np.isnan(normalized).any()
     assert np.allclose(normalized, 0.0)
+
+
+def test_select_top_k_returns_highest_scores_first():
+    indices, scores = select_top_k(np.array([0.1, 0.9, 0.5, 0.7]), k=3)
+
+    assert indices.tolist() == [1, 3, 2]
+    assert scores.tolist() == [0.9, 0.7, 0.5]
 
 
 def test_top_k_cosine_returns_closest_rows_with_scores():
